@@ -6,48 +6,6 @@ Math.to_degrees = function(radians) {
     return radians * 180 / Math.PI
 }
 
-function circle_intersection(a, r0, b, r1) {
-    var x0 = a.x, y0 = a.y,
-        x1 = b.x, y1 = b.y
-    var dx = x1 -x0, dy = y1 - y0,
-        d = Math.sqrt((dx*dx) + (dy*dy))
-
-    if (d > (r0 + r1)) {
-        console.log("Circles can not intersect")
-        return
-    } else if (d < Math.abs(r0 - r1)) {
-        console.log("Circle contained in other circle")
-    }
-
-    var a = ((r0*r0) - (r1*r1) + (d*d)) / (2.0 * d),
-        x2 = x0 + (dx * a/d),
-        y2 = y0 + (dy * a/d),
-        h = Math.sqrt((r0*r0) - (a*a)),
-        rx = -dy * (h/d),
-        ry = dx * (h/d)
-
-    return [{x: x2 + rx, y: y2 + ry},
-            {x: x2 - rx, y: y2 - ry}]
-}
-
-function normalize_angle(a) {
-    while (a > (Math.PI*2)) { a -= Math.PI*2 }
-    while (a < 0) { a += Math.PI*2 }
-    return a
-}
-
-function intersection_to_angle(inter, center) {
-    var dx1 = center.x - inter[0].x,
-        dy1 = center.y - inter[0].y,
-        dx2 = center.x - inter[1].x,
-        dy2 = center.y - inter[1].y
-    var a1 = Math.atan(dy1/dx1), a2 = Math.atan(dy2/dx2)
-    if (dx1 >= 0) { a1 -= Math.PI }
-    if (dx2 >= 0) { a2 -= Math.PI }
-    return {start: normalize_angle(a2),
-            end: normalize_angle(a1)}
-}
-
 var point = function(spec) {
     var that = {}, spec = spec || {}
     that.x = spec.x || (spec.distance && spec.distance * Math.cos(spec.angle || 0)) || 0
@@ -62,6 +20,10 @@ var point = function(spec) {
 
     that.distanceTo = function(b) {
         return Math.sqrt(that.sqDistanceTo(b))
+    }
+
+    that.angleTo = function(b) {
+        return Math.atan2(that.y - b.y, that.x - b.x) - Math.PI
     }
 
     that.equal = function(b) {
@@ -81,6 +43,47 @@ var point = function(spec) {
     return that
 }
 
+function circle_intersection(a, r0, b, r1) {
+    var d = a.distanceTo(b)
+
+    if (d > (r0 + r1)) {
+        console.log("Circles can not intersect")
+        return
+    } else if (d < Math.abs(r0 - r1)) {
+        console.log("Circle contained in other circle")
+        return
+    }
+
+    var dx = b.x - a.x, dy = b.y - a.y,
+        k = ((r0*r0) - (r1*r1) + (d*d)) / (2.0 * d),
+        x2 = a.x + (dx * k/d),
+        y2 = a.y + (dy * k/d),
+        h = Math.sqrt((r0*r0) - (k*k)),
+        rx = -dy * (h/d),
+        ry = dx * (h/d)
+
+    return [{x: x2 + rx, y: y2 + ry},
+            {x: x2 - rx, y: y2 - ry}]
+}
+
+function normalize_angle(a) {
+    while (a > (Math.PI*2)) { a -= Math.PI*2 }
+    while (a < 0) { a += Math.PI*2 }
+    return a
+}
+
+function order_angles(a) {
+    var start = normalize_angle(a.start),
+        end = normalize_angle(a.end)
+    return {start: start > end ? start - Math.PI*2 : start,
+            end: end}
+}
+
+function intersection_to_angle(inter, center) {
+    return {start: center.angleTo(inter[1]),
+            end: center.angleTo(inter[0])}
+}
+
 var shape = function(spec) {
     var that = {}
 
@@ -89,13 +92,6 @@ var shape = function(spec) {
     }
 
     return that
-}
-
-function order_angles(a) {
-    var start = normalize_angle(a.start),
-        end = normalize_angle(a.end)
-    return {start: start > end ? start - Math.PI*2 : start,
-            end: end}
 }
 
 var sector = function(spec) {
@@ -404,11 +400,11 @@ function Galifrey() {
         var c = circle({radius: 100})
         c.subtract(point({angle: -Math.PI/2, distance: 100}), 40)
         // c.subtract(point({angle: -Math.PI/3, distance: 100}), 40)
-        // c.subtract(point({angle: 0, distance: 100}), 20)
-        // c.subtract(point({angle: -3*Math.PI/4, distance: 120}), 40)
-        // c.subtract(point({angle: 3*Math.PI/4, distance: 120}), 40)
-        // c.add(point({angle: Math.PI/2, distance: 115}), 10)
-        // c.add(point({angle: Math.PI/6, distance: 115}), 10, true)
+        c.subtract(point({angle: 0, distance: 100}), 20)
+        c.subtract(point({angle: -3.5*Math.PI/4, distance: 60.5}), 40)
+        c.subtract(point({angle: 3*Math.PI/4, distance: 120}), 40)
+        c.add(point({angle: Math.PI/2, distance: 115}), 10)
+        c.add(point({angle: Math.PI/6, distance: 115}), 10, true)
         draw_circle(ctx, point({x: 250, y: 250}), c)
 
         // this.word.draw(ctx, this.count)
