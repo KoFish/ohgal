@@ -44,8 +44,8 @@ function intersection_to_angle(inter, center) {
     var a1 = Math.atan(dy1/dx1), a2 = Math.atan(dy2/dx2)
     if (dx1 >= 0) { a1 -= Math.PI }
     if (dx2 >= 0) { a2 -= Math.PI }
-    return {start: normalize_angle(a1),
-            end: normalize_angle(a2)}
+    return {start: normalize_angle(a2),
+            end: normalize_angle(a1)}
 }
 
 var point = function(spec) {
@@ -68,6 +68,10 @@ var point = function(spec) {
         return b.x == that.x && b.y == that.y
     }
 
+    that.is = function(type) {
+        return (type === 'point')
+    }
+
     that.toString = function() {
         return 'point({x: ' + that.x + ', y: ' + that.y + '})'
     }
@@ -87,53 +91,53 @@ var shape = function(spec) {
     return that
 }
 
-var arc = function(spec) {
+function order_angles(a) {
+    var start = normalize_angle(a.start),
+        end = normalize_angle(a.end)
+    return {start: start > end ? start - Math.PI*2 : start,
+            end: end}
+}
+
+var sector = function(spec) {
     var spec = spec || {},
-        that = shape(spec),
-        _start = spec.start || 0,
-        _end = spec.end !== undefined ? spec.end : (Math.PI*2)
-    that.radius = spec.radius
-    that.start = Math.min(_start, _end)
-    that.end = Math.max(_end, _start)
-    that.reversed = _start > _end
-    that.offset = spec.offset || point({x: 0, y: 0})
+        that = shape(spec)
+    that.start = spec.start || 0
+    that.end = spec.end !== undefined ? spec.end : (Math.PI*2)
 
     that.overlaps = function(b) {
-        return b.start < that.end && b.end > that.start
+        var a = order_angles(that),
+            b = order_angles(b)
+        return b.start < a.end && b.end > a.start
     }
 
-    that.split = function(from, to) {
-        a = Math.min(that.start, from)
-        b = Math.max(that.start, from)
-        c = to
-        d = to < that.end ? that.end : to
-        console.log(a, b, c, d)
-        a1 = arc({start: a,
-                  end: b,
-                  radius: that.radius,
-                  reversed: that.reversed,
-                  offset: that.offset
-                 })
-        a2 = arc({start: b,
-                  end: c,
-                  radius: that.radius,
-                  reversed: that.reversed,
-                  offset: that.offset
-                 })
-        if (c != d) {
-            a3 = arc({start: c,
-                      end: d,
-                      radius: that.radius,
-                      reversed: that.reversed,
-                      offset: that.offset
-                     })
-        }
-        return [a1, a2, a3]
+    that.contains = function(b) {
+        var a = order_angles(that),
+            end = a.end - a.start,
+            b = normalize_angle(b - a.start)
+        return b > 0 && b < end
     }
 
     var super_is = that.is
     that.is = function(type) {
-        return super_is(type) || (type === 'arc')
+        return (type === 'sector') || super_is(type)
+    }
+
+    return that
+}
+
+var arc = function(spec) {
+    var spec = spec || {},
+        that = sector(spec)
+    that.radius = spec.radius
+    that.offset = spec.offset || point({x: 0, y: 0})
+
+    that.equal = function(b) {
+        return b.start == that.start && b.end == that.end && b.radius == that.radius
+    }
+
+    var super_is = that.is
+    that.is = function(type) {
+        return (type === 'arc') || super_is(type)
     }
 
     return that
@@ -144,7 +148,7 @@ var filledArc = function(spec) {
         super_is = that.is
 
     that.is = function(type) {
-        return super_is(type) || (type === 'filled')
+        return (type === 'filled') || super_is(type)
     }
 
     return that
@@ -156,7 +160,7 @@ var circle = function(spec) {
 
     internal.center = point({x: 0, y: 0})
     internal.radius = spec.radius
-    internal.base_arc = [arc({radius: spec.radius})]
+    internal.gaps = []
     internal.shapes = []
 
     that.getIntersections = function(offset, radius) {
@@ -172,37 +176,19 @@ var circle = function(spec) {
         var both_inters = that.getIntersections(offset, radius)
         if (both_inters !== undefined) {
             var a_inters = both_inters[0],
-                b_inters = both_inters[1],
-                new_base = []
+                b_inters = both_inters[1]
 
-            console.log("Add new sector, between " + a_inters.start + " end " + a_inters.end)
-            for (var i = 0 ; i < internal.base_arc.length ; i++) {
-                var each = internal.base_arc[i]
-                if (each.offset.equal({x: 0, y:0})) {
-                    console.log(" - Compare to " + each.start + " and " + each.end)
-                    if (each.overlaps(a_inters)) {
-                        console.log(" - Split sector between " + each.start + " and " + each.end)
-                        var new_arcs = each.split(a_inters.start, a_inters.end),
-                            a1 = new_arcs[0],
-                            a2 = new_arcs[1],
-                            a3 = new_arcs.length == 3 ? new_arcs[2] : undefined
-                        new_base.push(a1)
-                        internal.shapes.push(arc({start: b_inters.start,
-                                                  end: b_inters.end,
-                                                  offset: offset,
-                                                  radius: radius}))
-                        if (a3) {
-                            new_base.push(a3)
-                        }
-                    } else {
-                        new_base.push(each)
-                    }
-                }
-            }
-            new_base.sort(function(a, b) {
+            var gap = sector(a_inters)
+            internal.gaps.push(gap)
+            internal.shapes.push(arc({radius: radius,
+                                      start: b_inters.end,
+                                      end: b_inters.start,
+                                      offset: offset
+                                     }))
+
+            internal.gaps.sort(function(a, b) {
                 return a.start - b.start
             })
-            internal.base_arc = new_base
         }
         return that
     }
@@ -221,8 +207,33 @@ var circle = function(spec) {
     }
 
     that.getShapes = function() {
+        var shapes = []
+        if (internal.gaps.length > 0) {
+            var start = internal.gaps[0].end,
+                end = internal.gaps[0].start
+            for (var i = 1 ; i < internal.gaps.length ; i++) {
+                var each = internal.gaps[i]
+                if (each.start >= start) {
+                    shapes.push(arc({
+                        radius: internal.radius,
+                        start: start,
+                        end: each.start
+                    }))
+                }
+                start = each.end
+            }
+            shapes.push(arc({
+                radius: internal.radius,
+                start: start,
+                end: end
+            }))
+        } else {
+            shapes.push(arc({radius: internal.radius,
+                             start: 0,
+                             end: Math.PI*2}))
+        }
         // return internal.base_arc
-        return internal.base_arc.concat(internal.shapes)
+        return shapes.concat(internal.shapes)
     }
 
     return that
@@ -239,13 +250,13 @@ function draw_circle(ctx, offset, c) {
             console.log("Draw arc")
             console.log(shape)
             ctx.beginPath()
-            ctx.save()
-            ctx.strokeStyle = '#faa'
-            ctx.arc(x + shape.offset.x, y + shape.offset.y, shape.radius + 10 + (i % 2)*5, shape.start, shape.end, shape.reversed)
-            ctx.stroke()
-            ctx.restore()
+            // ctx.save()
+            // ctx.strokeStyle = '#faa'
+            // ctx.arc(x + shape.offset.x, y + shape.offset.y, shape.radius + 4 + (i % 3)*4, shape.start, shape.end)
+            // ctx.stroke()
+            // ctx.restore()
             ctx.beginPath()
-            ctx.arc(x + shape.offset.x, y + shape.offset.y, shape.radius, shape.start, shape.end, shape.reversed)
+            ctx.arc(x + shape.offset.x, y + shape.offset.y, shape.radius, shape.start, shape.end)
             if (shape.is('filled')) {
                 console.log("filled")
                 ctx.fill()
@@ -391,8 +402,9 @@ function Galifrey() {
         }
 
         var c = circle({radius: 100})
-        c.subtract(point({angle: -Math.PI/4, distance: 100}), 40)
-        c.subtract(point({angle: 0, distance: 100}), 20)
+        c.subtract(point({angle: -Math.PI/2, distance: 100}), 40)
+        // c.subtract(point({angle: -Math.PI/3, distance: 100}), 40)
+        // c.subtract(point({angle: 0, distance: 100}), 20)
         // c.subtract(point({angle: -3*Math.PI/4, distance: 120}), 40)
         // c.subtract(point({angle: 3*Math.PI/4, distance: 120}), 40)
         // c.add(point({angle: Math.PI/2, distance: 115}), 10)
